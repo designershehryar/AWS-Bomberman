@@ -2,6 +2,7 @@ import pygame
 import sys
 import random
 import os
+import math
 
 # Initialize pygame
 pygame.init()
@@ -111,10 +112,20 @@ class Player:
         self.alive = True
         self.lives = 3
         self.score = 0
+        self.direction = (0, 1)  # Facing down initially
+        self.animation_frame = 0
+        self.animation_counter = 0
+        self.animation_speed = 5
+        self.last_moved = False
     
     def move(self, dx, dy, grid):
         new_x = self.x + dx
         new_y = self.y + dy
+        
+        # Update direction
+        if dx != 0 or dy != 0:
+            self.direction = (dx, dy)
+            self.last_moved = True
         
         # Check if the new position is valid
         if (0 <= new_x < GRID_WIDTH and 0 <= new_y < GRID_HEIGHT and 
@@ -133,10 +144,78 @@ class Player:
             self.alive = False
         return self.alive
     
+    def update(self):
+        # Update animation
+        if self.last_moved:
+            self.animation_counter += 1
+            if self.animation_counter >= self.animation_speed:
+                self.animation_counter = 0
+                self.animation_frame = (self.animation_frame + 1) % 4
+            self.last_moved = False
+    
     def draw(self):
-        pygame.draw.rect(screen, BLUE, 
-                        (self.x * GRID_SIZE + 5, self.y * GRID_SIZE + 5, 
-                         GRID_SIZE - 10, GRID_SIZE - 10))
+        # Base player body (rounded rectangle)
+        player_rect = pygame.Rect(self.x * GRID_SIZE + 5, self.y * GRID_SIZE + 5, 
+                                 GRID_SIZE - 10, GRID_SIZE - 10)
+        pygame.draw.rect(screen, BLUE, player_rect, border_radius=8)
+        
+        # Draw face based on direction
+        face_x = self.x * GRID_SIZE + GRID_SIZE // 2
+        face_y = self.y * GRID_SIZE + GRID_SIZE // 2
+        
+        # Eyes
+        eye_offset_x = 0
+        eye_offset_y = 0
+        
+        # Adjust eye position based on direction
+        if self.direction[0] > 0:  # Right
+            eye_offset_x = 5
+        elif self.direction[0] < 0:  # Left
+            eye_offset_x = -5
+        
+        if self.direction[1] > 0:  # Down
+            eye_offset_y = 3
+        elif self.direction[1] < 0:  # Up
+            eye_offset_y = -3
+        
+        # Left eye
+        pygame.draw.circle(screen, WHITE, 
+                         (face_x - 8 + eye_offset_x, face_y - 5 + eye_offset_y), 
+                         4)
+        pygame.draw.circle(screen, BLACK, 
+                         (face_x - 8 + eye_offset_x, face_y - 5 + eye_offset_y), 
+                         2)
+        
+        # Right eye
+        pygame.draw.circle(screen, WHITE, 
+                         (face_x + 8 + eye_offset_x, face_y - 5 + eye_offset_y), 
+                         4)
+        pygame.draw.circle(screen, BLACK, 
+                         (face_x + 8 + eye_offset_x, face_y - 5 + eye_offset_y), 
+                         2)
+        
+        # Mouth (changes with animation frame)
+        if self.animation_frame % 2 == 0:
+            # Smile
+            pygame.draw.arc(screen, BLACK, 
+                          (face_x - 10, face_y + 2, 20, 10),
+                          0, 3.14, 2)
+        else:
+            # "O" mouth
+            pygame.draw.circle(screen, BLACK, (face_x, face_y + 7), 5, 2)
+        
+        # Draw helmet/hat
+        helmet_color = (50, 50, 200)  # Darker blue
+        pygame.draw.ellipse(screen, helmet_color,
+                          (self.x * GRID_SIZE + 5, self.y * GRID_SIZE, 
+                           GRID_SIZE - 10, GRID_SIZE // 3))
+        
+        # Draw antenna on helmet
+        pygame.draw.line(screen, BLACK,
+                       (face_x, self.y * GRID_SIZE + 2),
+                       (face_x, self.y * GRID_SIZE - 8),
+                       2)
+        pygame.draw.circle(screen, RED, (face_x, self.y * GRID_SIZE - 8), 3)
 
 class Enemy:
     def __init__(self, x, y):
@@ -364,6 +443,8 @@ class Bomb:
         self.explosion_range = 2
         self.pulse_size = 0
         self.growing = True
+        self.flash_timer = 0
+        self.flash_state = False
     
     def update(self):
         if not self.exploded:
@@ -379,6 +460,18 @@ class Bomb:
                 if self.pulse_size <= 0:
                     self.growing = True
             
+            # Flash faster as timer gets lower
+            self.flash_timer += 1
+            flash_speed = 15
+            if self.timer < 30:  # Last second
+                flash_speed = 5
+            elif self.timer < 60:  # Second to last second
+                flash_speed = 10
+                
+            if self.flash_timer >= flash_speed:
+                self.flash_timer = 0
+                self.flash_state = not self.flash_state
+            
             if self.timer <= 0:
                 self.exploded = True
                 if has_sound:
@@ -388,25 +481,63 @@ class Bomb:
     
     def draw(self):
         if not self.exploded:
-            # Draw bomb body
-            pygame.draw.circle(screen, BLACK, 
-                             (self.x * GRID_SIZE + GRID_SIZE // 2, 
-                              self.y * GRID_SIZE + GRID_SIZE // 2), 
-                             GRID_SIZE // 3)
+            center_x = self.x * GRID_SIZE + GRID_SIZE // 2
+            center_y = self.y * GRID_SIZE + GRID_SIZE // 2
+            bomb_radius = GRID_SIZE // 3
+            
+            # Draw bomb body (slightly oval)
+            pygame.draw.ellipse(screen, BLACK, 
+                              (center_x - bomb_radius, 
+                               center_y - bomb_radius,
+                               bomb_radius * 2,
+                               bomb_radius * 2 + 5))
+            
+            # Draw bomb cap (top part)
+            cap_width = bomb_radius // 2
+            pygame.draw.rect(screen, GRAY,
+                           (center_x - cap_width // 2,
+                            center_y - bomb_radius - 5,
+                            cap_width,
+                            5))
             
             # Draw bomb fuse
-            pygame.draw.line(screen, BROWN,
-                           (self.x * GRID_SIZE + GRID_SIZE // 2, 
-                            self.y * GRID_SIZE + GRID_SIZE // 3),
-                           (self.x * GRID_SIZE + GRID_SIZE // 2 + 5, 
-                            self.y * GRID_SIZE + GRID_SIZE // 4),
-                           3)
+            fuse_start_x = center_x
+            fuse_start_y = center_y - bomb_radius - 3
             
-            # Draw bomb highlight (pulsing)
-            pygame.draw.circle(screen, WHITE, 
-                             (self.x * GRID_SIZE + GRID_SIZE // 2 - 5, 
-                              self.y * GRID_SIZE + GRID_SIZE // 2 - 5), 
+            # Wavy fuse line
+            fuse_segments = 4
+            fuse_height = 12
+            prev_x, prev_y = fuse_start_x, fuse_start_y
+            
+            for i in range(1, fuse_segments + 1):
+                next_x = fuse_start_x + (i % 2) * 4 - 2
+                next_y = fuse_start_y - (i * fuse_height / fuse_segments)
+                pygame.draw.line(screen, BROWN, (prev_x, prev_y), (next_x, next_y), 3)
+                prev_x, prev_y = next_x, next_y
+            
+            # Draw fuse spark (flashing)
+            if self.flash_state:
+                spark_color = RED
+            else:
+                spark_color = ORANGE
+                
+            pygame.draw.circle(screen, spark_color, 
+                             (prev_x, prev_y - 3), 
                              3 + self.pulse_size)
+            
+            # Draw bomb highlight (reflection)
+            pygame.draw.ellipse(screen, WHITE, 
+                              (center_x - bomb_radius + 5, 
+                               center_y - bomb_radius + 5,
+                               bomb_radius - 2,
+                               bomb_radius - 2))
+            
+            # Draw "BOMB" text or timer numbers
+            if self.timer < 30:  # Show countdown in last second
+                font = pygame.font.SysFont(None, 20)
+                text = font.render(str((self.timer // 3) + 1), True, WHITE)
+                screen.blit(text, (center_x - text.get_width() // 2, 
+                                  center_y - text.get_height() // 2))
 
 class Explosion:
     def __init__(self, x, y, range_val, grid):
@@ -415,6 +546,8 @@ class Explosion:
         self.range = range_val
         self.timer = 30  # 1 second at 30 FPS
         self.tiles = self.calculate_tiles(grid)
+        self.animation_frame = 0
+        self.animation_speed = 3
     
     def calculate_tiles(self, grid):
         tiles = [(self.x, self.y)]  # Center tile
@@ -444,13 +577,39 @@ class Explosion:
     
     def update(self):
         self.timer -= 1
+        # Update animation frame
+        if self.timer % self.animation_speed == 0:
+            self.animation_frame = (self.animation_frame + 1) % 3
         return self.timer <= 0
     
     def draw(self):
         for x, y in self.tiles:
+            # Base explosion
             pygame.draw.rect(screen, RED, 
                            (x * GRID_SIZE, y * GRID_SIZE, 
                             GRID_SIZE, GRID_SIZE))
+            
+            # Add explosion details based on animation frame
+            center_x = x * GRID_SIZE + GRID_SIZE // 2
+            center_y = y * GRID_SIZE + GRID_SIZE // 2
+            
+            # Draw explosion waves
+            wave_colors = [(255, 200, 0), (255, 150, 0), (255, 100, 0)]
+            for i, color in enumerate(wave_colors):
+                size = GRID_SIZE // 2 - i * 5 - self.animation_frame * 2
+                if size > 0:
+                    pygame.draw.circle(screen, color, (center_x, center_y), size)
+            
+            # Draw sparks
+            spark_count = 5 + self.animation_frame * 2
+            for _ in range(spark_count):
+                angle = random.random() * 6.28  # 2*pi
+                distance = random.random() * GRID_SIZE // 3
+                spark_x = center_x + int(math.cos(angle) * distance)
+                spark_y = center_y + int(math.sin(angle) * distance)
+                spark_size = random.randint(1, 3)
+                pygame.draw.circle(screen, (255, 255, 200), 
+                                 (spark_x, spark_y), spark_size)
 
 def create_grid():
     # 0 = empty, 1 = wall (indestructible), 2 = block (destructible)
@@ -518,18 +677,8 @@ def draw_ui(player):
     screen.blit(lives_text, (SCREEN_WIDTH - lives_text.get_width() - 10, 10))
 
 def main():
-    grid = create_grid()
-    player = Player(1, 1)
-    enemies = spawn_enemies(grid, 3)  # Spawn 3 enemies
-    bombs = []
-    explosions = []
-    
-    running = True
-    respawn_timer = 0
-    
-    # Movement control variables
-    move_cooldown = 0
-    key_pressed = False
+    # This function is no longer used, replaced by game_loop
+    pass
     
     while running:
         # Handle events
@@ -577,6 +726,9 @@ def main():
                 # Set cooldown after movement
                 if moved:
                     move_cooldown = 10  # Adjust this value to control movement speed
+            
+            # Update player animation
+            player.update()
         elif respawn_timer > 0:
             respawn_timer -= 1
             if respawn_timer <= 0:
@@ -635,10 +787,12 @@ def main():
         
         # Check win condition
         if not enemies and player.alive:
+            if not win_bonus_added:
+                # Add bonus for completing the level (only once)
+                if player.lives > 0:
+                    player.score += player.lives * 200
+                win_bonus_added = True
             win = True
-            # Add bonus for completing the level
-            if player.lives > 0:
-                player.score += player.lives * 200
         else:
             win = False
         
@@ -665,14 +819,33 @@ def main():
             
             # Display win message if all enemies are defeated
             if win:
+                if not level_complete:
+                    level_complete = True
+                    level_complete_timer = 90  # 3 seconds at 30 FPS
+                
                 font = pygame.font.SysFont(None, 72)
-                text = font.render("You Win!", True, GREEN)
+                text = font.render(f"Level {level} Complete!", True, GREEN)
                 screen.blit(text, (SCREEN_WIDTH // 2 - text.get_width() // 2, 
                                   SCREEN_HEIGHT // 2 - text.get_height() // 2))
+                
+                # Show next level message
+                next_font = pygame.font.SysFont(None, 36)
+                next_text = next_font.render(f"Next Level in {level_complete_timer//30 + 1}...", True, WHITE)
+                screen.blit(next_text, (SCREEN_WIDTH // 2 - next_text.get_width() // 2, 
+                                      SCREEN_HEIGHT // 2 + 50))
                 
                 # Play win sound once
                 if has_sound and not pygame.mixer.get_busy():
                     sound_win.play()
+                    
+                # Countdown to next level
+                level_complete_timer -= 1
+                if level_complete_timer <= 0:
+                    # Save current score and lives
+                    score = player.score
+                    lives = player.lives
+                    level += 1
+                    running = False  # End current level loop
         else:
             font = pygame.font.SysFont(None, 72)
             text = font.render("Game Over", True, RED)
@@ -688,7 +861,251 @@ def main():
         pygame.display.flip()
         clock.tick(30)  # 30 FPS
 
+def game_loop():
+    level = 1
+    score = 0
+    lives = 3
+    
+    while True:
+        grid = create_grid()
+        player = Player(1, 1)
+        player.score = score  # Carry over score from previous level
+        player.lives = lives  # Carry over lives from previous level
+        enemies = spawn_enemies(grid, min(3 + level - 1, 10))  # More enemies each level, max 10
+        bombs = []
+        explosions = []
+        
+        running = True
+        respawn_timer = 0
+        win_bonus_added = False  # Flag to track if win bonus has been added
+        level_complete = False
+        level_complete_timer = 0
+        
+        # Movement control variables
+        move_cooldown = 0
+        key_pressed = False
+        
+        # Display level start message
+        screen.fill(BLACK)
+        font = pygame.font.SysFont(None, 72)
+        level_text = font.render(f"Level {level}", True, GREEN)
+        screen.blit(level_text, (SCREEN_WIDTH // 2 - level_text.get_width() // 2, 
+                              SCREEN_HEIGHT // 2 - level_text.get_height() // 2))
+        
+        # Display enemy count
+        enemy_font = pygame.font.SysFont(None, 36)
+        enemy_text = enemy_font.render(f"Enemies: {len(enemies)}", True, WHITE)
+        screen.blit(enemy_text, (SCREEN_WIDTH // 2 - enemy_text.get_width() // 2, 
+                               SCREEN_HEIGHT // 2 + 50))
+        
+        pygame.display.flip()
+        pygame.time.delay(2000)  # 2 second delay before level starts
+        
+        while running:
+            # Handle events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_SPACE:
+                        player.place_bomb(bombs)
+                        if has_sound:
+                            sound_bomb.play()
+                    # Set key_pressed to True when arrow key is pressed
+                    elif event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT):
+                        key_pressed = True
+                elif event.type == pygame.KEYUP:
+                    # Reset key_pressed when arrow key is released
+                    if event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT):
+                        key_pressed = False
+                        move_cooldown = 0
+            
+            # Handle player movement if alive and not respawning
+            if player.alive and respawn_timer <= 0:
+                # Decrease move cooldown
+                if move_cooldown > 0:
+                    move_cooldown -= 1
+                
+                # Only move if cooldown is 0 and key is pressed
+                if move_cooldown == 0 and key_pressed:
+                    keys = pygame.key.get_pressed()
+                    moved = False
+                    
+                    if keys[pygame.K_UP]:
+                        player.move(0, -player.speed, grid)
+                        moved = True
+                    elif keys[pygame.K_DOWN]:
+                        player.move(0, player.speed, grid)
+                        moved = True
+                    elif keys[pygame.K_LEFT]:
+                        player.move(-player.speed, 0, grid)
+                        moved = True
+                    elif keys[pygame.K_RIGHT]:
+                        player.move(player.speed, 0, grid)
+                        moved = True
+                    
+                    # Set cooldown after movement
+                    if moved:
+                        move_cooldown = 10  # Adjust this value to control movement speed
+                
+                # Update player animation
+                player.update()
+            elif respawn_timer > 0:
+                respawn_timer -= 1
+                if respawn_timer <= 0:
+                    # Reset player position
+                    player.x = 1
+                    player.y = 1
+            
+            # Update bombs
+            for bomb in bombs[:]:
+                if bomb.update():
+                    bombs.remove(bomb)
+                    explosions.append(Explosion(bomb.x, bomb.y, bomb.explosion_range, grid))
+                    player.bombs += 1  # Return the bomb to the player
+            
+            # Update explosions
+            for explosion in explosions[:]:
+                if explosion.update():
+                    explosions.remove(explosion)
+                
+                # Check if player is hit by explosion
+                if player.alive and respawn_timer <= 0:
+                    for x, y in explosion.tiles:
+                        if player.x == x and player.y == y:
+                            if has_sound:
+                                sound_player_die.play()
+                            if not player.lose_life():
+                                # Game over
+                                if has_sound:
+                                    sound_game_over.play()
+                            else:
+                                # Start respawn timer
+                                respawn_timer = 60  # 2 seconds at 30 FPS
+            
+            # Update enemies
+            for enemy in enemies[:]:
+                if enemy.alive:
+                    enemy.update(grid, explosions)
+                    
+                    # Check if player collides with enemy
+                    if player.alive and respawn_timer <= 0 and player.x == enemy.x and player.y == enemy.y:
+                        if has_sound:
+                            sound_player_die.play()
+                        if not player.lose_life():
+                            # Game over
+                            if has_sound:
+                                sound_game_over.play()
+                        else:
+                            # Start respawn timer
+                            respawn_timer = 60  # 2 seconds at 30 FPS
+                else:
+                    # Enemy killed, add score
+                    player.score += 100
+                    if has_sound:
+                        sound_enemy_die.play()
+                    enemies.remove(enemy)
+            
+            # Check win condition
+            if not enemies and player.alive:
+                if not win_bonus_added:
+                    # Add bonus for completing the level (only once)
+                    if player.lives > 0:
+                        player.score += player.lives * 200
+                    win_bonus_added = True
+                win = True
+            else:
+                win = False
+            
+            # Draw everything
+            screen.fill(BLACK)
+            draw_grid(grid)
+            
+            for bomb in bombs:
+                bomb.draw()
+            
+            for explosion in explosions:
+                explosion.draw()
+            
+            for enemy in enemies:
+                enemy.draw()
+            
+            # Draw UI (score and lives)
+            draw_ui(player)
+            
+            if player.alive:
+                # Don't draw player during respawn blink
+                if respawn_timer <= 0 or respawn_timer % 10 >= 5:
+                    player.draw()
+                
+                # Display win message if all enemies are defeated
+                if win:
+                    if not level_complete:
+                        level_complete = True
+                        level_complete_timer = 90  # 3 seconds at 30 FPS
+                    
+                    font = pygame.font.SysFont(None, 72)
+                    text = font.render(f"Level {level} Complete!", True, GREEN)
+                    screen.blit(text, (SCREEN_WIDTH // 2 - text.get_width() // 2, 
+                                      SCREEN_HEIGHT // 2 - text.get_height() // 2))
+                    
+                    # Show next level message
+                    next_font = pygame.font.SysFont(None, 36)
+                    next_text = next_font.render(f"Next Level in {level_complete_timer//30 + 1}...", True, WHITE)
+                    screen.blit(next_text, (SCREEN_WIDTH // 2 - next_text.get_width() // 2, 
+                                          SCREEN_HEIGHT // 2 + 50))
+                    
+                    # Play win sound once
+                    if has_sound and not pygame.mixer.get_busy():
+                        sound_win.play()
+                        
+                    # Countdown to next level
+                    level_complete_timer -= 1
+                    if level_complete_timer <= 0:
+                        # Save current score and lives
+                        score = player.score
+                        lives = player.lives
+                        level += 1
+                        running = False  # End current level loop
+            else:
+                font = pygame.font.SysFont(None, 72)
+                text = font.render("Game Over", True, RED)
+                screen.blit(text, (SCREEN_WIDTH // 2 - text.get_width() // 2, 
+                                  SCREEN_HEIGHT // 2 - text.get_height() // 2))
+                
+                # Display final score
+                score_font = pygame.font.SysFont(None, 48)
+                score_text = score_font.render(f"Final Score: {player.score}", True, WHITE)
+                screen.blit(score_text, (SCREEN_WIDTH // 2 - score_text.get_width() // 2, 
+                                        SCREEN_HEIGHT // 2 + 50))
+                
+                # Display restart message
+                restart_font = pygame.font.SysFont(None, 36)
+                restart_text = restart_font.render("Press any key to restart", True, WHITE)
+                screen.blit(restart_text, (SCREEN_WIDTH // 2 - restart_text.get_width() // 2, 
+                                         SCREEN_HEIGHT // 2 + 100))
+                
+                pygame.display.flip()
+                
+                # Wait for key press to restart
+                waiting_for_key = True
+                while waiting_for_key:
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                            pygame.quit()
+                            sys.exit()
+                        elif event.type == pygame.KEYDOWN:
+                            waiting_for_key = False
+                            level = 1
+                            score = 0
+                            lives = 3
+                            running = False
+            
+            pygame.display.flip()
+            clock.tick(30)  # 30 FPS
+
 if __name__ == "__main__":
-    main()
+    game_loop()
     pygame.quit()
     sys.exit()
